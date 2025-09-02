@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Basit Zıplama Oyunu</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --fg: #e2e8f0;
+      --accent: #22d3ee;
+      --accent-2: #a78bfa;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(1200px 600px at 50% -100px, #1e293b, var(--bg));
+      color: var(--fg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      display: grid;
+      place-items: center;
+      min-height: 100dvh;
+      user-select: none;
+    }
+    .wrap { width: min(92vw, 800px); }
+    h1 {
+      font-weight: 800;
+      margin: 12px 0 8px;
+      font-size: clamp(20px, 3.2vw, 32px);
+      text-align: center;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hud {
+      display: flex; gap: 12px; align-items: center; justify-content: center;
+      font-size: 14px; opacity: 0.9; margin-bottom: 8px;
+    }
+    canvas {
+      display: block;
+      width: 100%; height: auto;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      background: linear-gradient(#0b1022, #0b1022 70%, #0e152e);
+    }
+    .help { text-align:center; font-size: 13px; opacity: 0.8; margin-top: 8px; }
+    .btn {
+      display:inline-block; padding:10px 14px; border-radius:12px; border:1px solid #334155;
+      background: #111827; color: var(--fg); text-decoration:none; font-weight:600; cursor:pointer;
+      transition: transform .08s ease, background .2s ease;
+    }
+    .btn:active { transform: translateY(1px) scale(.99); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Basit Zıplama Oyunu</h1>
+    <div class="hud">
+      <span>Skor: <strong id="score">0</strong></span>
+      <span>•</span>
+      <span>Rekor: <strong id="best">0</strong></span>
+    </div>
+    <canvas id="game" width="800" height="280"></canvas>
+    <p class="help">
+      Zıpla: <strong>Boşluk</strong><br/>
+      Yeniden başlat: <strong>Enter</strong> / tuvale tıkla
+    </p>
+    <p class="help">
+      <button id="pauseBtn" class="btn">Duraklat</button>
+    </p>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const pauseBtn = document.getElementById('pauseBtn');
+
+    (function fixDPR() {
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const { width, height } = canvas;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      ctx.scale(dpr, dpr);
+    })();
+
+    let running = true;
+    let gameOver = false;
+
+    const gravity = 0.6;
+    const jumpVel = -10.5;
+    const groundY = 220;
+
+    const player = { x: 60, y: groundY, w: 28, h: 36, vy: 0, onGround: true, color: '#22d3ee' };
+
+    const obstacles = [];
+    let spawnTimer = 0;
+    let spawnInterval = 90;
+
+    let score = 0;
+    let best = parseInt(localStorage.getItem('jump-best') || '0', 10);
+    bestEl.textContent = best;
+
+    function reset() {
+      obstacles.length = 0;
+      player.y = groundY;
+      player.vy = 0;
+      player.onGround = true;
+      spawnTimer = 0;
+      spawnInterval = 90;
+      score = 0;
+      gameOver = false;
+      running = true;
+      pauseBtn.textContent = 'Duraklat';
+    }
+
+    function spawnObstacle() {
+      const h = 20 + Math.floor(Math.random() * 40);
+      const w = 14 + Math.floor(Math.random() * 22);
+      obstacles.push({ x: canvas.width / (window.devicePixelRatio||1) + 20, y: groundY + (player.h - h), w, h, passed:false, color:'#a78bfa' });
+      spawnInterval = Math.max(55, 90 - Math.floor(score / 20) * 3);
+    }
+
+    function jump() {
+      if (gameOver) return;
+      if (player.onGround) {
+        player.vy = jumpVel;
+        player.onGround = false;
+      }
+    }
+
+    function update() {
+      if (!running || gameOver) return;
+
+      player.vy += gravity;
+      player.y += player.vy;
+      if (player.y >= groundY) {
+        player.y = groundY;
+        player.vy = 0;
+        player.onGround = true;
+      }
+
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const o = obstacles[i];
+        const speed = 4 + Math.min(6, Math.floor(score / 120));
+        o.x -= speed;
+        if (!o.passed && o.x + o.w < player.x) {
+          o.passed = true;
+          score += 1;
+          scoreEl.textContent = score;
+        }
+        if (o.x + o.w < -50) obstacles.splice(i, 1);
+      }
+
+      for (const o of obstacles) {
+        if (rectsOverlap(player.x, player.y, player.w, player.h, o.x, o.y, o.w, o.h)) {
+          gameOver = true;
+          best = Math.max(best, score);
+          localStorage.setItem('jump-best', best);
+          bestEl.textContent = best;
+          break;
+        }
+      }
+
+      if (spawnTimer-- <= 0) {
+        spawnObstacle();
+        spawnTimer = spawnInterval;
+      }
+    }
+
+    function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+
+    function drawBackground(ctx) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY + player.h + 2);
+      ctx.lineTo(canvas.width, groundY + player.h + 2);
+      ctx.stroke();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground(ctx);
+
+      ctx.fillStyle = player.color;
+      roundRect(ctx, player.x, player.y, player.w, player.h, 6, true);
+
+      for (const o of obstacles) {
+        ctx.fillStyle = o.color;
+        roundRect(ctx, o.x, o.y, o.w, o.h, 4, true);
+      }
+
+      if (gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 28px system-ui';
+        ctx.fillText('Oyun Bitti', canvas.width / 2, 90);
+        ctx.font = '16px system-ui';
+        ctx.fillText(`Skor: ${score} • Rekor: ${best}`, canvas.width / 2, 120);
+        ctx.fillText('Yeniden başlat: Enter / tuvale tıkla', canvas.width / 2, 150);
+      }
+
+      if (!running && !gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#e2e8f0';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 22px system-ui';
+        ctx.fillText('Duraklatıldı', canvas.width / 2, 110);
+        ctx.font = '14px system-ui';
+        ctx.fillText('Devam: Duraklat butonu / P', canvas.width / 2, 135);
+      }
+    }
+
+    function roundRect(ctx, x, y, w, h, r, fill) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      if (fill) ctx.fill(); else ctx.stroke();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function restartIfNeeded() { if (gameOver) reset(); }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { e.preventDefault(); jump(); }
+      else if (e.code === 'Enter') { restartIfNeeded(); }
+      else if (e.code === 'KeyP') { togglePause(); }
+    }, { passive: false });
+
+    canvas.addEventListener('pointerdown', () => { gameOver ? reset() : jump(); });
+
+    pauseBtn.addEventListener('click', togglePause);
+
+    function togglePause() {
+      if (gameOver) return;
+      running = !running;
+      pauseBtn.textContent = running ? 'Duraklat' : 'Devam Et';
+    }
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
